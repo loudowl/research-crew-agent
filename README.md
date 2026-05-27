@@ -51,8 +51,11 @@ cd research-crew-agent
 
 ### 2. Create a virtual environment
 
+> **Requires Python 3.10–3.13.** CrewAI does not yet support Python 3.14+.
+> If your default `python3` is 3.14, install 3.12 first: `brew install python@3.12`
+
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 ```
 
@@ -60,6 +63,7 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 ```bash
 pip install -r requirements.txt
+pip install "crewai[anthropic]"   # native Anthropic provider
 ```
 
 ### 4. Configure API keys
@@ -69,7 +73,7 @@ cp .env.example .env
 ```
 
 Edit `.env` and add:
-- **`OPENAI_API_KEY`** — from [platform.openai.com](https://platform.openai.com)
+- **`ANTHROPIC_API_KEY`** — from [console.anthropic.com](https://console.anthropic.com) (requires credits)
 - **`SERPER_API_KEY`** — free tier at [serper.dev](https://serper.dev) (2,500 searches/month free)
 
 ---
@@ -125,22 +129,46 @@ The report is saved to `report.md` by default and also printed to the terminal.
 
 ### Swap the LLM
 
-CrewAI uses GPT-4o by default. To use a different model, edit `crew.py`:
+The crew defaults to **Claude Haiku 4.5** (`claude-haiku-4-5-20251001`). Edit `crew.py` to change it:
 
 ```python
-# Use GPT-4o mini (cheaper, faster)
 from crewai import LLM
-llm = LLM(model="gpt-4o-mini")
 
-# Or use Claude
-llm = LLM(model="claude-sonnet-4-6")
+# Claude Haiku 4.5 — default (fast, low cost, fits Tier-1 rate limits)
+llm = LLM(model="claude-haiku-4-5-20251001", provider="anthropic")
+
+# Claude Sonnet 4.6 — better quality, higher cost, needs Tier-2+ for long runs
+llm = LLM(model="claude-sonnet-4-6", provider="anthropic")
 ```
 
-Pass `llm=llm` to each `Agent(...)` call in `agents.py`.
+> **Why `provider="anthropic"` is required:** CrewAI 1.14.x resolves the LLM provider
+> from a hardcoded model list that only includes Claude 3.x names. Without the explicit
+> `provider` argument, `claude-*` model names silently fall back to the OpenAI provider
+> and fail. This will likely be fixed in a future CrewAI release.
+
+### Use OpenAI instead
+
+Set `OPENAI_API_KEY` in `.env` and update `crew.py`:
+
+```python
+llm = LLM(model="gpt-4o-mini")   # no provider arg needed for OpenAI
+```
+
+### Rate limits and Tier-1 accounts
+
+On a freshly funded Anthropic account (Tier 1), the limit is **50k input tokens/minute**
+for Haiku and **30k/minute** for Sonnet. The Researcher agent scrapes multiple web pages
+per run, which can exceed these limits if unchecked. Two guards are already in place:
+
+- **`TruncatedScraper`** in `agents.py` caps each scraped page at 3,000 characters.
+- **`max_iter=8`** on the Researcher caps the total number of tool calls per task.
+
+To upgrade your rate limits, add more credits at [console.anthropic.com/settings/billing](https://console.anthropic.com/settings/billing).
 
 ### Run without web search
 
-Remove `tools=[search_tool, web_tool]` from the Researcher in `agents.py` if you want the crew to reason from training data only (faster, no API key needed for search — but less current).
+Remove `tools=[search_tool, web_tool]` from the Researcher in `agents.py` to reason
+from training data only — faster, no Serper key needed, but results won't be current.
 
 ---
 
@@ -148,7 +176,7 @@ Remove `tools=[search_tool, web_tool]` from the Researcher in `agents.py` if you
 
 - [CrewAI](https://github.com/joaomdmoura/crewAI) — multi-agent orchestration
 - [crewai-tools](https://github.com/joaomdmoura/crewAI-tools) — SerperDev search + web scraping
-- [OpenAI API](https://platform.openai.com) — LLM backbone (swappable)
+- [Anthropic Claude](https://console.anthropic.com) — LLM backbone (swappable to OpenAI)
 - [Serper](https://serper.dev) — Google Search API for agents
 
 ---
@@ -159,6 +187,9 @@ Remove `tools=[search_tool, web_tool]` from the Researcher in `agents.py` if you
 - The quality of the final report is mostly determined by the task descriptions — vague tasks produce vague reports regardless of model quality.
 - `output_file` in CrewAI tasks is convenient but the final `crew.kickoff()` result string and the file can differ slightly; always check both.
 - Serper's free tier (2,500 searches/month) is plenty for experimentation but production use needs a paid plan.
+- **CrewAI 1.14.x does not auto-detect Claude 4.x model names** — you must pass `provider="anthropic"` explicitly or it silently routes to OpenAI.
+- **Web scraping without a content cap hits rate limits fast.** Scraped pages can be 5–15k tokens each; wrapping the tool to truncate output is the simplest fix.
+- `WebsiteSearchTool` (RAG-based) requires an `OPENAI_API_KEY` regardless of your LLM choice. Use `ScrapeWebsiteTool` instead when running on a non-OpenAI provider.
 
 ---
 
